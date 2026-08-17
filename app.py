@@ -94,7 +94,6 @@ with tab1:
         
         tag_col1, tag_col2 = st.columns(2)
         with tag_col1:
-            # เปลี่ยนเป็น Multiselect เลือกได้มากกว่า 1 รูปแบบ
             setup_list = st.multiselect(
                 "รูปแบบการเข้าเทรด (Setup) - เลือกได้หลายข้อ", 
                 [
@@ -127,13 +126,11 @@ with tab1:
                 "⚪ เทรดแก้เบื่อ / นอกแผน"
             ])
             
-            # เปลี่ยนเป็น อัปโหลดรูปภาพโดยตรง
             uploaded_image = st.file_uploader("📸 อัปโหลดรูปภาพกราฟ (PNG, JPG)", type=["png", "jpg", "jpeg"])
             
         note = st.text_input("บันทึกโน้ตเพิ่มเติม", placeholder="เช่น เกิด M5 Rejection ที่แนวรับ H1")
         
         if st.button("💾 บันทึกออเดอร์นี้ลง Journal", type="primary", use_container_width=True):
-            # แปลงไฟล์รูปภาพเป็น Base64 เพื่อเซฟลง JSON ถาวร
             image_base64 = ""
             if uploaded_image is not None:
                 bytes_data = uploaded_image.getvalue()
@@ -201,8 +198,6 @@ with tab2:
         st.info("ยังไม่มีประวัติออเดอร์ที่บันทึกไว้")
     else:
         df = pd.DataFrame(st.session_state.trades)
-        
-        # ไม่แสดง column image_data ในตารางหลักเพื่อความสะอาด
         display_df = df.drop(columns=["image_data"], errors="ignore")
         
         exp_col1, exp_col2 = st.columns(2)
@@ -224,9 +219,18 @@ with tab2:
         selected_index = next(i for i, t in enumerate(st.session_state.trades) if t["id"] == selected_id)
         current_trade = st.session_state.trades[selected_index]
         
-        # แสดงภาพกราฟที่อัปโหลดไว้
+        # ถอดรหัสแสดงผลรูปภาพอย่างปลอดภัย
         if current_trade.get("image_data"):
-            st.image(current_trade["image_data"], caption=f"🖼️ รูปภาพกราฟออเดอร์ #{selected_id}", use_column_width=True)
+            try:
+                img_str = current_trade["image_data"]
+                if img_str.startswith("data:image"):
+                    base64_data = img_str.split(",")[1]
+                    img_bytes = base64.b64decode(base64_data)
+                    st.image(img_bytes, caption=f"🖼️ รูปภาพกราฟออเดอร์ #{selected_id}", use_container_width=True)
+                else:
+                    st.image(img_str, caption=f"🖼️ รูปภาพกราฟออเดอร์ #{selected_id}", use_container_width=True)
+            except Exception as e:
+                st.error(f"ไม่สามารถแสดงรูปภาพได้: {e}")
             
         edit_c1, edit_c2, edit_c3 = st.columns(3)
         with edit_c1:
