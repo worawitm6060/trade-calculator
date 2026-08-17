@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import base64
 from datetime import datetime
 import plotly.express as px
-import plotly.graph_objects as go
 
 # ตั้งค่าหน้า Web App
 st.set_page_config(
@@ -94,15 +94,29 @@ with tab1:
         
         tag_col1, tag_col2 = st.columns(2)
         with tag_col1:
-            setup = st.selectbox("รูปแบบการเข้าเทรด (Setup)", [
-                "Smart Money Concepts (SMC)", 
-                "Quasimodo (QM)", 
-                "RSI Hidden Divergence", 
-                "Breakout / Retest", 
-                "News Trade (เทรดข่าว)",
-                "อื่นๆ"
-            ])
-            session = st.selectbox("ช่วงเวลาการเทรด (Session)", ["Asian Session", "London Session", "New York Session", "Overlap (London/NY)"])
+            # เปลี่ยนเป็น Multiselect เลือกได้มากกว่า 1 รูปแบบ
+            setup_list = st.multiselect(
+                "รูปแบบการเข้าเทรด (Setup) - เลือกได้หลายข้อ", 
+                [
+                    "Smart Money Concepts (SMC)", 
+                    "Quasimodo (QM)", 
+                    "RSI Hidden Divergence", 
+                    "Breakout / Retest", 
+                    "News Trade (เทรดข่าว)",
+                    "อื่นๆ"
+                ],
+                default=["Smart Money Concepts (SMC)"]
+            )
+            
+            session = st.selectbox(
+                "ช่วงเวลาการเทรด (Session)", 
+                [
+                    "Asian Session (06:00 - 13:00 น.)", 
+                    "London Session (14:00 - 22:00 น.)", 
+                    "New York Session (19:30 - 03:00 น.)", 
+                    "Overlap Session (19:30 - 22:00 น.)"
+                ]
+            )
             
         with tag_col2:
             mindset = st.selectbox("สภาพจิตใจ / การทำตามแผน", [
@@ -112,11 +126,19 @@ with tab1:
                 "🟠 โลภ / ขยับ TP ไกลขึ้น",
                 "⚪ เทรดแก้เบื่อ / นอกแผน"
             ])
-            chart_url = st.text_input("ลิงก์รูปภาพกราฟ (TradingView Image URL)", placeholder="https://www.tradingview.com/x/...")
+            
+            # เปลี่ยนเป็น อัปโหลดรูปภาพโดยตรง
+            uploaded_image = st.file_uploader("📸 อัปโหลดรูปภาพกราฟ (PNG, JPG)", type=["png", "jpg", "jpeg"])
             
         note = st.text_input("บันทึกโน้ตเพิ่มเติม", placeholder="เช่น เกิด M5 Rejection ที่แนวรับ H1")
         
         if st.button("💾 บันทึกออเดอร์นี้ลง Journal", type="primary", use_container_width=True):
+            # แปลงไฟล์รูปภาพเป็น Base64 เพื่อเซฟลง JSON ถาวร
+            image_base64 = ""
+            if uploaded_image is not None:
+                bytes_data = uploaded_image.getvalue()
+                image_base64 = f"data:image/png;base64,{base64.b64encode(bytes_data).decode('utf-8')}"
+
             new_id = (max([t["id"] for t in st.session_state.trades]) + 1) if st.session_state.trades else 1
             new_trade = {
                 "id": new_id,
@@ -130,10 +152,10 @@ with tab1:
                 "max_loss": round(max_loss, 2),
                 "max_profit": round(max_profit, 2),
                 "rr": round(rr_ratio, 2),
-                "setup": setup,
+                "setup": ", ".join(setup_list) if setup_list else "ไม่ได้ระบุ",
                 "session": session,
                 "mindset": mindset,
-                "chart_url": chart_url,
+                "image_data": image_base64,
                 "status": "Active (ถืออยู่)",
                 "pnl": 0.0,
                 "note": note
@@ -142,6 +164,32 @@ with tab1:
             save_data(st.session_state.trades)
             st.success("✅ บันทึกออเดอร์เรียบร้อยแล้ว!")
             st.rerun()
+
+    # ==========================================
+    # โซนกรอบคู่มือสรุปความหมาย SETUP & SESSION
+    # ==========================================
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("📖 **คลิกเพื่อดูคู่มือสรุปความหมาย Setup & Session (Cheat Sheet)**", expanded=True):
+        guide_col1, guide_col2 = st.columns(2)
+        
+        with guide_col1:
+            st.markdown("### 🎯 ความหมายของ Setup (รูปแบบเข้าเทรด)")
+            st.markdown("""
+            * **Smart Money Concepts (SMC):** เทรดตามรอยรายใหญ่/สถาบัน เน้นเข้าซื้อขายบริเวณ **Order Block (OB)**, **Fair Value Gap (FVG)** หรือรอให้เกิดการกวาดสภาพคล่อง (**Liquidity Sweep**) และการเปลี่ยนโครงสร้างราคา (**BOS / CHoCH**)
+            * **Quasimodo (QM):** รูปแบบการกลับตัวของราคาที่ทำจุดสูง/ต่ำใหม่ (ทำ HH แล้วทุบทำ LL หรือทำ LL แล้วดันทำ HH) แล้วย่อกลับมาทดสอบโซนไหล่เดิม (**Left Shoulder Zone**) เป็นจุดเข้าเทรดที่มี RR สูง
+            * **RSI Hidden Divergence:** สัญญาณเทรดตามเทรนด์เดิมเพื่อหาจุดย่อเข้า เช่น ราคาทำ **Higher Low (HL)** แต่ RSI ทำ **Lower Low (LL)** ในเทรนด์ขาขึ้น 
+            * **Breakout / Retest:** ราคาทะลุแนวรับ-แนวต้าน หรือ Trendline สำคัญอย่างรุนแรง แล้วย่อกลับมารีเทสโซนเดิมเพื่อเดินทางต่อตามทิศทางที่เบรก
+            * **News Trade (เทรดข่าว):** การวางแผนเทรดตามความผันผวนของตัวเลขเศรษฐกิจสำคัญ เช่น NFP, CPI, PPI หรือการประกาศดอกเบี้ย FOMC
+            """)
+            
+        with guide_col2:
+            st.markdown("### ⏰ ความหมายของ Session (ช่วงเวลาการเทรด)")
+            st.markdown("""
+            * **Asian Session (06:00 - 13:00 น. เวลาไทย):** ตลาดโตเกียว/ออสเตรเลีย ปริมาณซื้อขายต่ำ กราฟมักวิ่งแคบๆ ในกรอบ **Sideway** เหมาะกับการสะสมของหรือเล่นสั้น
+            * **London Session (14:00 - 22:00 น. เวลาไทย):** ตลาดยุโรป/ลอนดอนเปิด ปริมาณเงินเริ่มเข้า มักเกิดการสวิงหลอก (**Judas Swing**) เพื่อสร้างเทรนด์จริงของวัน
+            * **New York Session (19:30 - 03:00 น. เวลาไทย):** ตลาดอเมริกาเปิด **ผันผวนสูงที่สุด!** ข่าวสำคัญออกเยอะ กราฟทองคำมักวิ่งแรงและไกลที่สุดในวันช่วงนี้
+            * **Overlap Session (19:30 - 22:00 น. เวลาไทย):** ช่วงลอนดอนและนิวยอร์กเปิดซ้อนพร้อมกัน มีสภาพคล่องสูงสุดในรอบ 24 ชั่วโมง กราฟเคลื่อนที่ได้คมและแรงที่สุด
+            """)
 
 # ==========================================
 # TAB 2: TRADE HISTORY, EDIT, DELETE & BACKUP
@@ -154,15 +202,18 @@ with tab2:
     else:
         df = pd.DataFrame(st.session_state.trades)
         
+        # ไม่แสดง column image_data ในตารางหลักเพื่อความสะอาด
+        display_df = df.drop(columns=["image_data"], errors="ignore")
+        
         exp_col1, exp_col2 = st.columns(2)
         with exp_col1:
-            csv_data = df.to_csv(index=False).encode('utf-8-sig')
+            csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
             st.download_button("📥 ดาวน์โหลด CSV", data=csv_data, file_name="trade_history.csv", mime="text/csv", use_container_width=True)
         with exp_col2:
             json_data = json.dumps(st.session_state.trades, ensure_ascii=False, indent=4)
             st.download_button("💾 สำรองข้อมูล JSON (Backup)", data=json_data, file_name="trade_backup.json", mime="application/json", use_container_width=True)
             
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(display_df, use_container_width=True)
         
         st.divider()
         st.subheader("⚙️ แก้ไข / ลบ / ดูรูปภาพกราฟ")
@@ -173,9 +224,9 @@ with tab2:
         selected_index = next(i for i, t in enumerate(st.session_state.trades) if t["id"] == selected_id)
         current_trade = st.session_state.trades[selected_index]
         
-        # แสดงภาพกราฟถ้ามี URL
-        if current_trade.get("chart_url"):
-            st.image(current_trade["chart_url"], caption=f"รูปภาพกราฟออเดอร์ #{selected_id}", use_column_width=True)
+        # แสดงภาพกราฟที่อัปโหลดไว้
+        if current_trade.get("image_data"):
+            st.image(current_trade["image_data"], caption=f"🖼️ รูปภาพกราฟออเดอร์ #{selected_id}", use_column_width=True)
             
         edit_c1, edit_c2, edit_c3 = st.columns(3)
         with edit_c1:
@@ -233,7 +284,6 @@ with tab3:
         closed_df = df_all[df_all["status"] != "Active (ถืออยู่)"].copy()
         
         if not closed_df.empty:
-            # 1. Equity Curve
             closed_df["cumulative_pnl"] = closed_df["pnl"].cumsum()
             fig_equity = px.line(closed_df, x="timestamp", y="cumulative_pnl", title="📈 กราฟการเติบโตของพอร์ตสะสม (Equity Curve)", markers=True)
             fig_equity.update_traces(line_color="#00FF7F", line_width=3)
@@ -241,7 +291,6 @@ with tab3:
             
             st.divider()
             
-            # 2. Key Metrics
             m1, m2, m3, m4 = st.columns(4)
             tot_pnl = closed_df["pnl"].sum()
             wins = closed_df[closed_df["pnl"] > 0]
@@ -259,9 +308,7 @@ with tab3:
             
             st.divider()
             
-            # 3. Analytics Charts by Setup & Session & Mindset
             c_chart1, c_chart2 = st.columns(2)
-            
             with c_chart1:
                 setup_pnl = closed_df.groupby("setup")["pnl"].sum().reset_index()
                 fig_setup = px.bar(setup_pnl, x="setup", y="pnl", title="📊 กำไร/ขาดทุน แยกตาม Setup", color="pnl", color_continuous_scale="RdYlGn")
