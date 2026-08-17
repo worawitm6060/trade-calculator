@@ -3,15 +3,16 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 
 # ตั้งค่าหน้า Web App
 st.set_page_config(
-    page_title="XAUUSD Trade Calculator & Journal",
+    page_title="Pro XAUUSD Journal & Analytics",
     page_icon="📈",
     layout="wide"
 )
 
-# ไฟล์สำหรับบันทึกข้อมูลย้อนหลัง (Data Persistence)
 DATA_FILE = "trade_history.json"
 
 def load_data():
@@ -27,21 +28,19 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# โหลดข้อมูลเข้า Session State
 if "trades" not in st.session_state:
     st.session_state.trades = load_data()
 
-st.title("📈 XAUUSD Trade Calculator & Journal")
-st.caption("ระบบคำนวณความเสี่ยง และบันทึกประวัติออเดอร์เทรดทองคำ")
+st.title("📈 Pro XAUUSD Journal & Analytics")
+st.caption("ระบบวางแผนเทรด บันทึก Mindset ทบทวนกราฟ และวิเคราะห์สถิติการเทรดเชิงลึก")
 
-# สร้าง Tabs สำหรับแยกหน้าการทำงาน
-tab1, tab2, tab3 = st.tabs(["🧮 คำนวณ & บันทึกออเดอร์", "📜 ประวัติ & จัดการออเดอร์", "📊 สรุปภาพรวมพอร์ต"])
+tab1, tab2, tab3 = st.tabs(["🧮 คำนวณ & บันทึกออเดอร์", "📜 ประวัติ & สำรองข้อมูล", "📊 สรุปผล & Equity Curve"])
 
 # ==========================================
-# TAB 1: CALCULATOR & SAVE ORDER
+# TAB 1: CALCULATOR & TRADE JOURNAL INPUT
 # ==========================================
 with tab1:
-    st.header("คำนวณแผนการเทรด")
+    st.header("1. คำนวณความเสี่ยงและแผนการเทรด")
     
     col_input, col_result = st.columns([1, 1])
     
@@ -50,9 +49,7 @@ with tab1:
         symbol = st.selectbox("สินทรัพย์", ["XAUUSD (ทองคำ)", "EURUSD", "GBPUSD", "BTCUSD"])
         side = st.radio("ฝั่งการเทรด", ["BUY", "SELL"], horizontal=True)
         
-        # เลือกโหมดขนาด Lot (กรอกเอง หรือ ให้คำนวณจาก % Risk)
         lot_mode = st.radio("วิธีการกำหนดขนาด Lot", ["กรอกขนาด Lot เอง", "คำนวณ Lot อัตโนมัติจาก % Risk"], horizontal=True)
-        
         entry_price = st.number_input("ราคาเข้า (Entry Price)", min_value=0.0, value=4363.229, format="%.3f")
         calc_mode = st.radio("รูปแบบการกำหนดเป้าหมาย", ["กรอกราคา SL/TP ตรงๆ", "กำหนดจากค่า RR"], horizontal=True)
         
@@ -64,26 +61,13 @@ with tab1:
         else:
             sl_distance = st.number_input("ระยะ SL (ดอลลาร์/จุด)", min_value=0.1, value=3.0, step=0.5)
             rr_target = st.number_input("เป้าหมาย RR (1 : X)", min_value=0.5, value=2.0, step=0.5)
-            
-            if side == "BUY":
-                sl_price = entry_price - sl_distance
-                tp_price = entry_price + (sl_distance * rr_target)
-            else:
-                sl_price = entry_price + sl_distance
-                tp_price = entry_price - (sl_distance * rr_target)
-                
+            sl_price = (entry_price - sl_distance) if side == "BUY" else (entry_price + sl_distance)
+            tp_price = (entry_price + (sl_distance * rr_target)) if side == "BUY" else (entry_price - (sl_distance * rr_target))
             st.info(f"📍 คำนวณอัตโนมัติ -> SL: {sl_price:.3f} | TP: {tp_price:.3f}")
 
-        # คำนวณระยะ SL/TP
-        if side == "BUY":
-            sl_dist = entry_price - sl_price
-            tp_dist = tp_price - entry_price
-        else:
-            sl_dist = sl_price - entry_price
-            tp_dist = entry_price - tp_price
+        sl_dist = (entry_price - sl_price) if side == "BUY" else (sl_price - entry_price)
+        tp_dist = (tp_price - entry_price) if side == "BUY" else (entry_price - tp_price)
 
-        # กำหนดขนาด Lot
-        multiplier = 100.0 if "XAUUSD" in symbol else 100000.0
         if lot_mode == "กรอกขนาด Lot เอง":
             lot = st.number_input("ขนาด Lot Size", min_value=0.01, value=0.01, step=0.01, format="%.2f")
         else:
@@ -91,7 +75,7 @@ with tab1:
             max_risk_usd = (capital * risk_percent_input) / 100.0
             calculated_lot = max_risk_usd / (sl_dist * 100.0) if sl_dist > 0 else 0.01
             lot = max(0.01, round(calculated_lot, 2))
-            st.success(f"💡 คำนวณขนาด Lot แนะนำ: **{lot:.2f} Lot** (เสี่ยงไม้นี้ ${max_risk_usd:.2f})")
+            st.success(f"💡 ขนาด Lot แนะนำ: **{lot:.2f} Lot** (เสี่ยง ${max_risk_usd:.2f})")
 
     max_loss = sl_dist * (lot * 100)
     max_profit = tp_dist * (lot * 100)
@@ -100,17 +84,37 @@ with tab1:
 
     with col_result:
         st.subheader("📊 ผลการคำนวณ")
-        
         res_c1, res_c2 = st.columns(2)
         res_c1.metric("🔴 ขาดทุนสูงสุด (SL)", f"-${max_loss:.2f}", f"{risk_pct:.1f}% ของพอร์ต", delta_color="inverse")
         res_c2.metric("🟢 กำไรสูงสุด (TP)", f"+${max_profit:.2f}", f"{(max_profit/capital)*100:.1f}% ของพอร์ต")
-        
-        st.write(f"⚖️ **Risk-to-Reward Ratio (RR):** `1 : {rr_ratio:.2f}`")
-        st.write(f"📏 **ระยะ SL:** {sl_dist:.3f} USD ({sl_dist*100:.0f} จุด)")
-        st.write(f"🎯 **ระยะ TP:** {tp_dist:.3f} USD ({tp_dist*100:.0f} จุด)")
+        st.write(f"⚖️ **RR Ratio:** `1 : {rr_ratio:.2f}` | 📏 **ระยะ SL:** {sl_dist*100:.0f} จุด | 🎯 **ระยะ TP:** {tp_dist*100:.0f} จุด")
         
         st.divider()
-        note = st.text_input("บันทึกโน้ตเพิ่มเติม (ถ้ามี)", placeholder="เช่น เข้าตามสัญญาณ M5 Rejection")
+        st.subheader("🧠 บันทึกบริบทการเทรด (Context & Mindset)")
+        
+        tag_col1, tag_col2 = st.columns(2)
+        with tag_col1:
+            setup = st.selectbox("รูปแบบการเข้าเทรด (Setup)", [
+                "Smart Money Concepts (SMC)", 
+                "Quasimodo (QM)", 
+                "RSI Hidden Divergence", 
+                "Breakout / Retest", 
+                "News Trade (เทรดข่าว)",
+                "อื่นๆ"
+            ])
+            session = st.selectbox("ช่วงเวลาการเทรด (Session)", ["Asian Session", "London Session", "New York Session", "Overlap (London/NY)"])
+            
+        with tag_col2:
+            mindset = st.selectbox("สภาพจิตใจ / การทำตามแผน", [
+                "🟢 นิ่ง / ทำตามแผน 100%", 
+                "🟡 FOMO (กลัวตกรถ/เข้าเร็วเกิน)", 
+                "🔴 Revenge Trade (เทรดเอาคืน)", 
+                "🟠 โลภ / ขยับ TP ไกลขึ้น",
+                "⚪ เทรดแก้เบื่อ / นอกแผน"
+            ])
+            chart_url = st.text_input("ลิงก์รูปภาพกราฟ (TradingView Image URL)", placeholder="https://www.tradingview.com/x/...")
+            
+        note = st.text_input("บันทึกโน้ตเพิ่มเติม", placeholder="เช่น เกิด M5 Rejection ที่แนวรับ H1")
         
         if st.button("💾 บันทึกออเดอร์นี้ลง Journal", type="primary", use_container_width=True):
             new_id = (max([t["id"] for t in st.session_state.trades]) + 1) if st.session_state.trades else 1
@@ -126,6 +130,10 @@ with tab1:
                 "max_loss": round(max_loss, 2),
                 "max_profit": round(max_profit, 2),
                 "rr": round(rr_ratio, 2),
+                "setup": setup,
+                "session": session,
+                "mindset": mindset,
+                "chart_url": chart_url,
                 "status": "Active (ถืออยู่)",
                 "pnl": 0.0,
                 "note": note
@@ -136,141 +144,139 @@ with tab1:
             st.rerun()
 
 # ==========================================
-# TAB 2: TRADE HISTORY & EDITING & DELETING
+# TAB 2: TRADE HISTORY, EDIT, DELETE & BACKUP
 # ==========================================
 with tab2:
-    st.header("📜 ประวัติออเดอร์และการจัดการ")
+    st.header("📜 ประวัติออเดอร์และการจัดการข้อมูล")
     
     if not st.session_state.trades:
         st.info("ยังไม่มีประวัติออเดอร์ที่บันทึกไว้")
     else:
         df = pd.DataFrame(st.session_state.trades)
         
-        # ปุ่มดาวน์โหลด CSV
-        csv_data = df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="📥 ดาวน์โหลดประวัติทั้งหมด (CSV)",
-            data=csv_data,
-            file_name=f"trade_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-        )
-        
+        exp_col1, exp_col2 = st.columns(2)
+        with exp_col1:
+            csv_data = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button("📥 ดาวน์โหลด CSV", data=csv_data, file_name="trade_history.csv", mime="text/csv", use_container_width=True)
+        with exp_col2:
+            json_data = json.dumps(st.session_state.trades, ensure_ascii=False, indent=4)
+            st.download_button("💾 สำรองข้อมูล JSON (Backup)", data=json_data, file_name="trade_backup.json", mime="application/json", use_container_width=True)
+            
         st.dataframe(df, use_container_width=True)
         
         st.divider()
-        st.subheader("⚙️ แก้ไข / ลบ ออเดอร์")
+        st.subheader("⚙️ แก้ไข / ลบ / ดูรูปภาพกราฟ")
         
         trade_ids = [t["id"] for t in st.session_state.trades]
-        selected_id = st.selectbox("เลือก ID ออเดอร์ที่ต้องการจัดการ", trade_ids)
+        selected_id = st.selectbox("เลือก ID ออเดอร์", trade_ids)
         
         selected_index = next(i for i, t in enumerate(st.session_state.trades) if t["id"] == selected_id)
         current_trade = st.session_state.trades[selected_index]
         
-        edit_c1, edit_c2, edit_c3 = st.columns(3)
-        
-        with edit_c1:
-            new_sl = st.number_input("ปรับราคา SL ใหม่", value=float(current_trade["sl"]), format="%.3f", key="edit_sl")
-            new_tp = st.number_input("ปรับราคา TP ใหม่", value=float(current_trade["tp"]), format="%.3f", key="edit_tp")
+        # แสดงภาพกราฟถ้ามี URL
+        if current_trade.get("chart_url"):
+            st.image(current_trade["chart_url"], caption=f"รูปภาพกราฟออเดอร์ #{selected_id}", use_column_width=True)
             
+        edit_c1, edit_c2, edit_c3 = st.columns(3)
+        with edit_c1:
+            new_sl = st.number_input("ปรับราคา SL", value=float(current_trade["sl"]), format="%.3f")
+            new_tp = st.number_input("ปรับราคา TP", value=float(current_trade["tp"]), format="%.3f")
         with edit_c2:
             status_list = ["Active (ถืออยู่)", "TP Hit (ชนะ)", "SL Hit (แพ้)", "Closed Manual (ปิดมือ)"]
-            current_status = current_trade.get("status", "Active (ถืออยู่)")
-            status_index = status_list.index(current_status) if current_status in status_list else 0
+            cur_status = current_trade.get("status", "Active (ถืออยู่)")
+            idx = status_list.index(cur_status) if cur_status in status_list else 0
+            new_status = st.selectbox("สถานะ", status_list, index=idx)
             
-            new_status = st.selectbox("สถานะออเดอร์", status_list, index=status_index)
-            
-            if new_status == "TP Hit (ชนะ)":
-                default_pnl = current_trade["max_profit"]
-            elif new_status == "SL Hit (แพ้)":
-                default_pnl = -current_trade["max_loss"]
-            else:
-                default_pnl = current_trade.get("pnl", 0.0)
-                
-            actual_pnl = st.number_input("กำไร/ขาดทุน จริงที่ปิด ($)", value=float(default_pnl), format="%.2f")
-
+            def_pnl = current_trade["max_profit"] if new_status == "TP Hit (ชนะ)" else (-current_trade["max_loss"] if new_status == "SL Hit (แพ้)" else current_trade.get("pnl", 0.0))
+            actual_pnl = st.number_input("กำไร/ขาดทุน จริง ($)", value=float(def_pnl), format="%.2f")
         with edit_c3:
-            new_note = st.text_area("แก้ไขโน้ต", value=current_trade.get("note", ""))
+            new_note = st.text_area("โน้ต", value=current_trade.get("note", ""))
             
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                if st.button("🔄 อัปเดตข้อมูล", type="primary", use_container_width=True):
-                    e_price = current_trade["entry"]
-                    l_size = current_trade["lot"]
-                    s_side = current_trade["side"]
-                    
-                    s_dist = (e_price - new_sl) if s_side == "BUY" else (new_sl - e_price)
-                    t_dist = (new_tp - e_price) if s_side == "BUY" else (e_price - new_tp)
-                    
-                    m_loss = round(s_dist * (l_size * 100), 2)
-                    m_profit = round(t_dist * (l_size * 100), 2)
-                    r_ratio = round(t_dist / s_dist, 2) if s_dist > 0 else 0
-                    
+            b_col1, b_col2 = st.columns(2)
+            with b_col1:
+                if st.button("🔄 อัปเดต", type="primary", use_container_width=True):
                     st.session_state.trades[selected_index].update({
-                        "sl": new_sl,
-                        "tp": new_tp,
-                        "max_loss": m_loss,
-                        "max_profit": m_profit,
-                        "rr": r_ratio,
-                        "status": new_status,
-                        "pnl": actual_pnl,
-                        "note": new_note
+                        "sl": new_sl, "tp": new_tp, "status": new_status, "pnl": actual_pnl, "note": new_note
                     })
                     save_data(st.session_state.trades)
-                    st.success(f"อัปเดตออเดอร์ #{selected_id} สำเร็จ!")
+                    st.success("อัปเดตเรียบร้อย!")
                     st.rerun()
-                    
-            with btn_col2:
-                if st.button("🗑️ ลบออเดอร์นี้", use_container_width=True):
+            with b_col2:
+                if st.button("🗑️ ลบออเดอร์", use_container_width=True):
                     st.session_state.trades.pop(selected_index)
                     save_data(st.session_state.trades)
-                    st.warning(f"ลบออเดอร์ #{selected_id} เรียบร้อยแล้ว!")
+                    st.warning("ลบเรียบร้อย!")
                     st.rerun()
 
-        st.divider()
-        with st.expander("🚨 โซนอันตราย (Danger Zone)"):
-            if st.button("🔥 ลบประวัติออเดอร์ทั้งหมด (Clear All)", type="secondary"):
-                st.session_state.trades = []
-                save_data([])
-                st.error("ลบประวัติออเดอร์ทั้งหมดเรียบร้อยแล้ว!")
+    st.divider()
+    st.subheader("📥 นำเข้าข้อมูลสำรอง (Restore Backup)")
+    uploaded_file = st.file_uploader("อัปโหลดไฟล์ backup.json เพื่อคืนค่าข้อมูล", type=["json"])
+    if uploaded_file is not None:
+        try:
+            imported_trades = json.load(uploaded_file)
+            if st.button("🔄 ยืนยันการคืนค่าข้อมูล"):
+                st.session_state.trades = imported_trades
+                save_data(imported_trades)
+                st.success("คืนค่าข้อมูลสำเร็จ!")
                 st.rerun()
+        except Exception as e:
+            st.error(f"ไฟล์ไม่ถูกต้อง: {e}")
 
 # ==========================================
-# TAB 3: PORTFOLIO SUMMARY & ANALYTICS
+# TAB 3: PORTFOLIO SUMMARY & EQUITY CURVE
 # ==========================================
 with tab3:
-    st.header("📊 สรุปผลการเทรดรวม (Performance Analytics)")
+    st.header("📊 สรุปผลการเทรด & กราฟวิเคราะห์ประสิทธิภาพ")
     
     if st.session_state.trades:
         df_all = pd.DataFrame(st.session_state.trades)
-        closed_trades = df_all[df_all["status"] != "Active (ถืออยู่)"]
+        closed_df = df_all[df_all["status"] != "Active (ถืออยู่)"].copy()
         
-        sum_c1, sum_c2, sum_c3, sum_c4 = st.columns(4)
-        
-        total_pnl = closed_trades["pnl"].sum() if not closed_trades.empty else 0.0
-        win_trades = closed_trades[closed_trades["pnl"] > 0]
-        loss_trades = closed_trades[closed_trades["pnl"] < 0]
-        
-        total_closed = len(closed_trades)
-        win_rate = (len(win_trades) / total_closed * 100) if total_closed > 0 else 0.0
-        
-        gross_profit = win_trades["pnl"].sum() if not win_trades.empty else 0.0
-        gross_loss = abs(loss_trades["pnl"].sum()) if not loss_trades.empty else 0.0
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 0.0)
-        
-        sum_c1.metric("จำนวนออเดอร์ทั้งหมด", len(df_all))
-        sum_c2.metric("ออเดอร์ที่ปิดแล้ว", total_closed)
-        sum_c3.metric("กำไร/ขาดทุน สะสม", f"${total_pnl:.2f}", delta_color="normal" if total_pnl>=0 else "inverse")
-        sum_c4.metric("Win Rate", f"{win_rate:.1f}%")
-        
-        st.divider()
-        st.subheader("📈 สถิติเชิงลึก")
-        st_c1, st_c2, st_c3 = st.columns(3)
-        
-        avg_win = win_trades["pnl"].mean() if not win_trades.empty else 0.0
-        avg_loss = abs(loss_trades["pnl"].mean()) if not loss_trades.empty else 0.0
-        
-        st_c1.metric("Profit Factor", f"{profit_factor:.2f}")
-        st_c2.metric("กำไรเฉลี่ยเมื่อชนะ (Avg Win)", f"+${avg_win:.2f}")
-        st_c3.metric("ขาดทุนเฉลี่ยเมื่อแพ้ (Avg Loss)", f"-${avg_loss:.2f}")
+        if not closed_df.empty:
+            # 1. Equity Curve
+            closed_df["cumulative_pnl"] = closed_df["pnl"].cumsum()
+            fig_equity = px.line(closed_df, x="timestamp", y="cumulative_pnl", title="📈 กราฟการเติบโตของพอร์ตสะสม (Equity Curve)", markers=True)
+            fig_equity.update_traces(line_color="#00FF7F", line_width=3)
+            st.plotly_chart(fig_equity, use_container_width=True)
+            
+            st.divider()
+            
+            # 2. Key Metrics
+            m1, m2, m3, m4 = st.columns(4)
+            tot_pnl = closed_df["pnl"].sum()
+            wins = closed_df[closed_df["pnl"] > 0]
+            losses = closed_df[closed_df["pnl"] < 0]
+            win_rate = (len(wins) / len(closed_df)) * 100
+            
+            g_profit = wins["pnl"].sum()
+            g_loss = abs(losses["pnl"].sum())
+            pf = (g_profit / g_loss) if g_loss > 0 else g_profit
+            
+            m1.metric("กำไร/ขาดทุน รวม", f"${tot_pnl:.2f}")
+            m2.metric("Win Rate", f"{win_rate:.1f}%")
+            m3.metric("Profit Factor", f"{pf:.2f}")
+            m4.metric("จำนวนไม้ที่ปิดแล้ว", len(closed_df))
+            
+            st.divider()
+            
+            # 3. Analytics Charts by Setup & Session & Mindset
+            c_chart1, c_chart2 = st.columns(2)
+            
+            with c_chart1:
+                setup_pnl = closed_df.groupby("setup")["pnl"].sum().reset_index()
+                fig_setup = px.bar(setup_pnl, x="setup", y="pnl", title="📊 กำไร/ขาดทุน แยกตาม Setup", color="pnl", color_continuous_scale="RdYlGn")
+                st.plotly_chart(fig_setup, use_container_width=True)
+                
+            with c_chart2:
+                session_pnl = closed_df.groupby("session")["pnl"].sum().reset_index()
+                fig_session = px.bar(session_pnl, x="session", y="pnl", title="🌍 กำไร/ขาดทุน แยกตาม Session", color="pnl", color_continuous_scale="Viridis")
+                st.plotly_chart(fig_session, use_container_width=True)
+                
+            st.divider()
+            fig_mindset = px.pie(closed_df, names="mindset", title="🧠 สัดส่วนสภาพจิตใจและวินัยตอนเข้าเทรด")
+            st.plotly_chart(fig_mindset, use_container_width=True)
+            
+        else:
+            st.info("ยังไม่มีออเดอร์ที่ปิดสถานะ (กรุณาอัปเดตสถานะออเดอร์เป็น TP/SL/ปิดมือ ก่อนดูการวิเคราะห์)")
     else:
-        st.info("ยังไม่มีข้อมูลสำหรับสรุปผล")
+        st.info("ยังไม่มีข้อมูลสำหรับวิเคราะห์")
